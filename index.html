@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>Untitled</title>
+    
+
+  </head>
+    
+  <body>
+  <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Gesture Particles - Mobile & USB Fixed</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        .ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; z-index: 10; }
+        #status {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #00d4ff; font-size: 18px; z-index: 20; text-align: center;
+        }
+        #video-preview { 
+            position: absolute; bottom: 20px; right: 20px; 
+            width: 180px; height: 135px; border: 2px solid #555; 
+            border-radius: 10px; transform: scaleX(-1); 
+            background: #222; object-fit: cover;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status">Camera Initialize ho raha hai...<br>(Permission Check Karein)</div>
+
+    <div class="ui">
+        <h1 style="color: #00d4ff; margin: 0; font-size: 20px;">Hand Particle System</h1>
+        <p>✨ Pinch = Heart | 🖐️ Open = Saturn</p>
+    </div>
+
+    <video id="video-preview" autoplay playsinline></video>
+    <div id="canvas-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        const statusEl = document.getElementById('status');
+        const videoElement = document.getElementById('video-preview');
+
+        // --- 1. Three.js Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+        camera.position.z = 5;
+
+        // --- 2. Particles ---
+        const particleCount = 6000; // Performance ke liye thora kam kiya
+        const geo = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        for (let i = 0; i < particleCount; i++) {
+            const i3 = i * 3;
+            positions[i3] = (Math.random() - 0.5) * 10;
+            positions[i3+1] = (Math.random() - 0.5) * 10;
+            positions[i3+2] = (Math.random() - 0.5) * 10;
+            colors[i3] = 0.1; colors[i3+1] = 0.7; colors[i3+2] = 1.0;
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const mat = new THREE.PointsMaterial({ size: 0.04, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending });
+        const particles = new THREE.Points(geo, mat);
+        scene.add(particles);
+
+        // --- 3. Animation Logic ---
+        let handX = 0, handY = 0, isPinching = false;
+
+        function updateParticles() {
+            const posAttr = geo.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                const i3 = i * 3;
+                let tx, ty, tz;
+
+                if (isPinching) {
+                    const t = (i / particleCount) * Math.PI * 2;
+                    tx = 0.12 * (16 * Math.pow(Math.sin(t), 3));
+                    ty = 0.12 * (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t));
+                    tz = (Math.random() - 0.5) * 0.2;
+                } else {
+                    const angle = (i / particleCount) * Math.PI * 2;
+                    const r = 2.4 + (i % 12) * 0.04;
+                    tx = Math.cos(angle) * r;
+                    ty = Math.sin(angle * 0.4) * 0.2;
+                    tz = Math.sin(angle) * r;
+                }
+
+                posAttr[i3] += (tx + handX - posAttr[i3]) * 0.1;
+                posAttr[i3+1] += (ty + handY - posAttr[i3+1]) * 0.1;
+                posAttr[i3+2] += (tz - posAttr[i3+2]) * 0.1;
+            }
+            geo.attributes.position.needsUpdate = true;
+        }
+
+        // --- 4. MediaPipe & Camera ---
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            if (statusEl) statusEl.style.display = 'none';
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                handX = (0.5 - landmarks[9].x) * 10;
+                handY = (0.5 - landmarks[9].y) * 8;
+
+                const dx = landmarks[8].x - landmarks[4].x;
+                const dy = landmarks[8].y - landmarks[4].y;
+                isPinching = Math.sqrt(dx*dx + dy*dy) < 0.06;
+            }
+        });
+
+        // Camera Logic Optimized for USB/Mobile
+        const cameraFeed = new window.Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            // facingMode 'user' front camera ke liye hai. 
+            // Agar USB camera laptop se attach hai, to browser ise hi default banayega.
+            facingMode: 'user', 
+            width: 640, height: 480
+        });
+
+        cameraFeed.start().catch(err => {
+            console.error(err);
+            statusEl.innerHTML = "Camera Error!<br>1. External Camera plug-in karein.<br>2. Browser settings (🔒) mein Camera 'Allow' karein.";
+            statusEl.style.color = "orange";
+        });
+
+        // --- 5. Rendering ---
+        function animate() {
+            requestAnimationFrame(animate);
+            updateParticles();
+            particles.rotation.y += 0.002;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
